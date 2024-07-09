@@ -1,5 +1,5 @@
 import functools as ft
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import ipdb
 import matplotlib.pyplot as plt
@@ -78,7 +78,7 @@ def get_vee(M: np.ndarray) -> np.ndarray:
     return np.array([M[2, 1], M[0, 2], M[1, 0]])
 
 
-def get_quad_xdot(state: np.ndarray, torque: np.ndarray, thrust: float | np.ndarray, params: Params = Params()):
+def get_quad_xdot(state: np.ndarray, torque: np.ndarray, thrust: Union[float, np.ndarray], params: Params = Params()):
     """
     state: (12,). [ px, py, pz | vx, vy, vz | ϕ, θ, ψ | p, q, r ]
     torque: (3,). Body frame.
