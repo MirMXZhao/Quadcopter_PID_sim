@@ -40,7 +40,7 @@ def make_F():
 
 
 #number of iterations
-num_iterations = 600
+num_iterations = 300
 
 #constants
 m = 29.9 #mass

@@ -285,7 +285,7 @@ def PID(cur_real, t):
    ev = - (cur_desired[3:6] - cur_real[3:6])
 
    x_tilde = calculate_x_tilde(cur_desired[8]) #check if the last is actually yaw
-   val = -kp*ep - kv*ev + m*g*e3 + m*desired_states[iter][3:6] #CHECK if this is correct
+   val = -kp*ep - kv*ev + m*g*e3 + m*des_lin_accel[iter+1] #CHECK if this is correct
    print(f'{val = }')
    print(f'{des_lin_accel[iter] = }')
    # print(f'{-kp*ep-kv*ev=}')
@@ -306,7 +306,7 @@ def PID(cur_real, t):
    ay = cur_real[10].item()
    az = cur_real[11].item()
    cur_real_cross = np.array([[0, -az, ay], [az, 0, -ax], [-ay, ax, 0]])
-   torqueB = -kr*er -kw*ew + np.cross(cur_real[-3:].ravel(), (J@cur_real[-3:]).ravel()) - J@(cur_real_cross@rwb.T@rwd@cur_desired[-3:] - rwb.T@rwd@desired_states[iter][3:])
+   torqueB = -kr*er -kw*ew + np.cross(cur_real[-3:].ravel(), (J@cur_real[-3:]).ravel()) - J@(cur_real_cross@rwb.T@rwd@cur_desired[-3:] - rwb.T@rwd@des_rot_accel[iter])
    # print(f'{np.linalg.inv(J)@torqueB=}')
 #    print(f'{torqueB =}')
    ang_accel = np.linalg.inv(J)@(torqueB - np.cross(cur_real[-3:].ravel(), (J@cur_real[-3:]).ravel()))
