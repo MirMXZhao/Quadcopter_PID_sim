@@ -39,7 +39,7 @@ def make_F():
 
 
 #number of iterations
-num_iterations = 40
+num_iterations = 2200
 
 #constants
 m = 29.9 #mass
@@ -75,17 +75,17 @@ desired_motor_speeds = []
 
 real_initial = np.zeros((12,1))
 # real_initial = np.random.uniform(low = -1, high = 2, size = (12,1))
-real_initial[2] = 10
+real_initial[2] = 20
 real_initial[0] = 0
 real_initial[1] = 0
 # real_initial[-9:] = 0
-kp = 2
-kv = 0.3
-kr = 0.3
-kw = 0.3
+kp = 34
+kv = 30
+kr = 0.4
+kw = 0.4
 
 #DISCRETIZATION
-discretization = 0.01
+discretization = 0.003
 
 #######################################owo#####################################
 # ---------------------------------MOTOR SPEEDS-------------------------------#
@@ -94,10 +94,10 @@ discretization = 0.01
 #Motor controls for testing
 #quadrant 1 is motor 1, quadrant 2 is motor 4, quadrant 3 is motor 3, quadrant 4 is motor 2
 throttle_up = np.array([[1],[1],[1],[1]])
-roll_left = np.array([[1], [1], [1.05], [1.05]])
-roll_right = np.array([[1.05], [1.05], [1], [1]])
-pitch_forward = np.array([[1], [1.1], [1.1], [1]])
-pitch_backward = np.array([[1.1], [1], [1], [1.1]])
+roll_left = np.array([[1], [1], [1.02], [1.02]])
+roll_right = np.array([[1.02], [1.02], [1], [1]])
+pitch_forward = np.array([[1], [1.02], [1.02], [1]])
+pitch_backward = np.array([[1.02], [1], [1], [1.02]])
 yaw_CW = np.array([[1], [1.1], [1], [1.1]])
 yaw_CCW = np.array([[1.1], [1], [1.1], [1]])
 
@@ -105,17 +105,16 @@ def make_motor_speeds_non_int():
    stored = []
    stored.append((0, throttle_up*0))
    stored.append((0.1, throttle_up*6))
-   stored.append((1, throttle_up*7))
-   stored.append((1.05, pitch_forward*2))
-   stored.append((1.1, throttle_up *3))
-   stored.append((2.2, throttle_up*3))
-   stored.append((2.4, pitch_backward*1.3))
-   stored.append((3, throttle_up*3))
+   stored.append((3, throttle_up*7))
+   stored.append((3.05, pitch_forward*1.4))
+   stored.append((3.1, throttle_up *3))
+   stored.append((4.2, throttle_up*3))
+   stored.append((4.4, pitch_backward*1.3))
    stored.append((5, throttle_up*3))
+   stored.append((7, throttle_up*3))
    return stored 
 
 new_desired_motor_speeds = make_motor_speeds_non_int()
-print(new_desired_motor_speeds)
 
 index = 0
 
@@ -124,9 +123,7 @@ def cts_motor_speed_fn(t):
    if t >= new_desired_motor_speeds[index+1][0]:
       index +=1 
    fn_output = new_desired_motor_speeds[index][1] + (t - new_desired_motor_speeds[index][0])/(new_desired_motor_speeds[index+1][0] - new_desired_motor_speeds[index][0])*(new_desired_motor_speeds[index + 1][1] - new_desired_motor_speeds[index][1])
-   # print(new_desired_motor_speeds[index][0])
-   # print(new_desired_motor_speeds[index][0])
-   print(fn_output)
+   # print(fn_output)
    return fn_output
 
 #######################################iwi####################################
@@ -180,25 +177,6 @@ def state_func(x, t):
   output = np.vstack((p_dot, v_dot, angle_dot, omega_dot))
   return output
 
-def state_func_orig(x, t):
-  """
-  math to calculate derivative of state
-  """
-  p_dot = x[3:6]
-  # makes the new acceleration and angular acceleration vectors
-  cur_motors_abs = make_omega(cts_motor_speed_fn((int(t))))
-  to_extract = np.vstack((-m*g*e3, -(np.cross(x[-3:].reshape(1,-1), (J@x[-3:]).reshape(1, -1))).reshape(-1, 1)))
-  R = calculate_R(x[6], x[7], x[8])
-#    print(f'{F@cur_motors_abs = }')
-  sub_step = np.block([[R, np.zeros((3,3))],[np.zeros((3,3)), np.eye(3)]])
-  to_extract = to_extract + sub_step@F@cur_motors_abs
-#    print(f'{to_extract = }')
-  v_dot = to_extract[:3]/m
-  omega_dot = np.linalg.inv(J)@to_extract[-3:]
-  angle_dot = make_M_inv(x[6], x[7], x[8])@x[-3:]
-  output = np.vstack((p_dot, v_dot, np.mod(angle_dot, 30*math.pi), np.mod(omega_dot, 30*math.pi)))
-  return output
-
 def make_M_inv(phi, theta, omega):
    """
    - makes the inverse of the M matrix, for calculating angle_dot
@@ -234,18 +212,18 @@ def simulate_runge_kutta(fn, x0, t0, step_size, num_iters, store = False):
       # print(f'{k2 = }')
       # print(f'{k3 = }')
       # print(f'{k4 = }')
+      new_slope = (k1 + 2*k2 + 2*k3 + k4)/6
       if store:
-         des_lin_accel.append(k1[3:6])
-         des_rot_accel.append(k1[-3:])
-      simulated_x[i] = simulated_x[i-1] + step_size/6*(k1 + 2*k2 + 2*k3 + k4)
+         des_lin_accel.append(new_slope[3:6])
+         des_rot_accel.append(new_slope[-3:])
+      simulated_x[i] = simulated_x[i-1] + step_size*new_slope
       cur_t = cur_t + step_size
   return simulated_x
 
-print(f'{des_lin_accel =}')
+# print(f'{des_lin_accel =}')
 desired_states = make_state() # this is the array of desired states
 # print(f'{desired_states = }')
 
-# desired_states_orig = simulate_runge_kutta(state_func_orig, initial, 0, 0.1, num_iterations)
 ################################################################################
 # ---------------------------------PID CONTROLLER------------------------------#
 ################################################################################
@@ -272,22 +250,33 @@ def calculate_Rwd(val, x_tilde):
    # print(f'{Rwd = }')
    return Rwd
 
+def bound(val1, val2, bound):
+   """
+   val1 and val2 are two column vectors of size 3
+   ensures that each row in val1 is within val2 +- bound. 
+   """
+   new_list = []
+   for i in range(3):
+      new_list.append(max(val2[i] - bound, min(val1[i], val2[i] + bound)))
+   new_vec = np.array(new_list).reshape(-1, 1)
+   return new_vec
+
 def PID(cur_real, t):
    """
    PID controller: calculates next force and torque
    Only for one iteration
    """
    #calculate the defined errors for position, velo, rot, and ang vel
-   iter = int(t/discretization) #WRONG WRONG WRONG !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   print(f'{iter = }')
+   iter = int(t/discretization)
+   # print(f'{iter = }')
    cur_desired = desired_states[iter]
    ep =  - (cur_desired[:3] - cur_real[:3])
    ev = - (cur_desired[3:6] - cur_real[3:6])
 
    x_tilde = calculate_x_tilde(cur_desired[8]) #check if the last is actually yaw
    val = -kp*ep - kv*ev + m*g*e3 + m*des_lin_accel[iter+1] #CHECK if this is correct
-   print(f'{val = }')
-   print(f'{des_lin_accel[iter] = }')
+   # print(f'{val = }')
+   # print(f'{des_lin_accel[iter] = }')
    # print(f'{-kp*ep-kv*ev=}')
    # print(f'{m*des_lin_accel[iter]=}')
    # print(f'{val = }') #PRINT FOR DEBUGGING
@@ -297,8 +286,8 @@ def PID(cur_real, t):
    er = 0.5*np.array([[temp_matrix[2][1]], [temp_matrix[0][2]], [temp_matrix[1][0]]])
 
    ew = cur_real[-3:] - rwb.T@rwd@cur_desired[-3:]
-   print(f'{ep = }')
-   print(f'{ev = }')
+   # print(f'{ep = }')
+   # print(f'{ev = }')
    # print(f'{er = }')
 #    print(f'{ew = }')
    fBz = val*rwb@e3
@@ -310,11 +299,15 @@ def PID(cur_real, t):
    # print(f'{np.linalg.inv(J)@torqueB=}')
 #    print(f'{torqueB =}')
    ang_accel = np.linalg.inv(J)@(torqueB - np.cross(cur_real[-3:].ravel(), (J@cur_real[-3:]).ravel()))
-#    print(f'{ang_accel =}')
-   print(f'{fBz = }')
+#   print(f'{ang_accel =}')
+   # print(f'{fBz = }')
    # print(f'{cur_real[3:6] = }')
    # print(f'{ang_accel[:, 0] = }')
-   final = np.vstack((cur_real[3:6], (fBz - m*g*e3)/m, cur_real[-3:], ang_accel[:, 1].reshape(-1, 1)))
+   final_accel = bound(ang_accel[:, 1].reshape(-1, 1), des_rot_accel[iter], 2)
+   # print(f'{ang_accel[:, 1].reshape(-1, 1) = }')
+   # print(f'{des_rot_accel[iter] = }')
+   # print(f'{final_accel = }')
+   final = np.vstack((cur_real[3:6], (fBz - m*g*e3)/m, cur_real[-3:], final_accel))
    # print(f'{final =}')
    return final
 
@@ -323,8 +316,10 @@ created_states = simulate_runge_kutta(PID, real_initial, 0, discretization, num_
 
 #############################################################################
 # ---------------------------------CONVERSION-------------------------------#
+# NOT CURRENTLY BEING USED: KINDA UNNECESSARY, at least for now             #
 #############################################################################
 #input force and torque, convert to motor speeds
+
 def convert_state_to_speed(f_and_t):
    """
    f and t is a list of 6 by 1 column vectors
@@ -442,8 +437,8 @@ if __name__ == "__main__":
     #testing PID
     # plot_mulaxis(created_states, num_iterations-1)
     # plot_mulaxis(desired_states)
-    print(f'{created_states = }')
-    print(f'{desired_states = }')
+   #  print(f'{created_states = }')
+   #  print(f'{desired_states = }')
     print(f'{evaluate_performance() = }')
     plot2D_both(created_states, desired_states)
     # plot3D(created_states)

@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 # ---------------------------------CONSTANTS--------------------------------#
 #############################################################################
 
-
 # makes position constants
 def make_arm_position():
    """
@@ -290,7 +289,6 @@ def plot2D_both(toplot1, toplot2):
        axs[axis_1, axis_2].plot(x_vals2, y_vals2, label = "desired")
        axs[axis_1, axis_2].set_title(labels[i])
    plt.legend()
-
 
 def plot3D(toplot):
    """
