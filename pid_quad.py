@@ -1,5 +1,5 @@
 import functools as ft
-from typing import NamedTuple, Union
+from typing import NamedTuple, Union, Dict
 
 import ipdb
 import matplotlib.pyplot as plt
@@ -204,7 +204,7 @@ def pid_xdot(state: np.ndarray, x_des: np.ndarray, pid_params: PIDParams = PIDPa
     return get_quad_xdot(state, tau_B, f_W_z, params)
 
 
-def plot_trajectory(T_t: np.ndarray, T_x_dict: dict[str, np.ndarray]):
+def plot_trajectory(T_t: np.ndarray, T_x_dict: Dict[str, np.ndarray]):
     labels = [
         r"$p_x$",
         r"$p_y$",
