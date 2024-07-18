@@ -1,3 +1,6 @@
+"""
+- 
+"""
 import numpy as np
 from qpsolvers import solve_qp
 import random 
@@ -184,7 +187,6 @@ if __name__ == "__main__":
     final_sim = sim_adaptive_control(A_a, B_a, g_a, r_a, init_k_x, init_k_r, init_theta, init_x0, x_result, r_result, step_size)
     print(f'{final_sim=}')
     plot([x_result[0], final_sim[0, :]])
-
 
     # plot3D_multiple([final_sim, x_result])
     # plot2D_multiple([final_sim, x_result])

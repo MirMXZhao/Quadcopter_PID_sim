@@ -1,3 +1,9 @@
+"""
+- creates stable desired motion based on the equation dx/dt = (A - BK)x
+  > K is adjusted for stability 
+- real system modelled with the same equation but unknown variables 
+- converges to desired as expected
+"""
 import numpy as np
 from qpsolvers import solve_qp
 import random 
@@ -53,7 +59,6 @@ def plot(toplot):
     for i in range(toplot.shape[0]):
         plt.plot(toplot[i, 0, :], toplot[i, 1, :], label = i)
     plt.legend()
-    plt.show()
 
 def plot3D(toplot):
     """
@@ -65,7 +70,6 @@ def plot3D(toplot):
     fig = plt.figure()
     ax = plt.axes(projection='3d')
     ax.plot3D(nums, toplot[0, :], toplot[1, :], 'orange')
-    plt.show()
 
 def plot3D_multiple(toplot):
     """
@@ -80,7 +84,6 @@ def plot3D_multiple(toplot):
     ax = plt.axes(projection='3d')
     ax.plot3D(nums, toplot_one[0, :], toplot_one[1, :], 'orange')
     ax.plot3D(nums, toplot_two[0, :], toplot_two[1, :], 'purple')
-    plt.show()
     pass
 
 def plot2D_multiple(toplot):
@@ -93,7 +96,6 @@ def plot2D_multiple(toplot):
         axs2[x].plot(range(0,total_steps), toplot[0][x, :], 'orange') 
         axs2[x].plot(range(0,total_steps), toplot[1][x, :], 'purple')  
         axs2[x].set_title(str(x+1))
-    plt.show()
     pass
 
     
@@ -142,7 +144,7 @@ if __name__ == "__main__":
     max_gen = 3
     max_2 = 1
     # np.random.seed(0)
-    A = np.random.rand(x_dim, x_dim)*2*max_gen- max_gen 
+    A = np.random.rand(x_dim, x_dim)*2*max_gen - max_gen 
     B = np.random.rand(x_dim, u_dim)*2*max_gen - max_gen*1.5
     Q = make_pos_def(x_dim, 2)
     R = make_pos_def(u_dim, 2)
@@ -178,6 +180,7 @@ if __name__ == "__main__":
 
     plot3D_multiple([final_sim, x_result])
     plot2D_multiple([final_sim, x_result])
+    plt.show()
 
 
 

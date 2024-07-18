@@ -16,7 +16,7 @@ def build_argparser(parent_parsers=[]):
 
     group = parser.add_argument_group("Simulation-only", "")
     group.add_argument("--vis", help="Visualization backend.", choices=['mpl', 'vispy', 'null'], default="mpl")
-    group.add_argument("--dt", help="Duration of seconds between rendered visualization frames.", type=float, default=0.1)
+    group.add_argument("--dt", help="Duration of seconds between rendered visualization frames.", type=float, default=0.001)
     group.add_argument("--writecsv", help="Enable CSV output.", action="store_true")
     group.add_argument("--disturbance", help="Simulate Gaussian-distributed disturbance when using cmdVelocityWorld.", type=float, default=0.0)
     group.add_argument("--maxvel", help="Limit simulated velocity (meters/sec).", type=float, default=np.inf)

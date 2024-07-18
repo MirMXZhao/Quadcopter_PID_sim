@@ -3,10 +3,11 @@
 import numpy as np
 
 from pycrazyswarm import *
+from pycrazyswarm.crazyflieSim import Crazyflie, TimeHelper
 import uav_trajectory
 
 
-def executeTrajectory(timeHelper, cf, trajpath, rate=100, offset=np.zeros(3)):
+def executeTrajectory(timeHelper: TimeHelper, cf: Crazyflie, trajpath, rate=100, offset=np.zeros(3)):
     traj = uav_trajectory.Trajectory()
     traj.loadcsv(trajpath)
 
@@ -30,7 +31,7 @@ def executeTrajectory(timeHelper, cf, trajpath, rate=100, offset=np.zeros(3)):
 if __name__ == "__main__":
     swarm = Crazyswarm()
     timeHelper = swarm.timeHelper
-    cf = swarm.allcfs.crazyflies[0]
+    cf: Crazyflie = swarm.allcfs.crazyflies[0]
 
     rate = 30.0
     Z = 0.5

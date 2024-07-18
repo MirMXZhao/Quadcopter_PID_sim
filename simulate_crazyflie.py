@@ -181,4 +181,4 @@ def sim_adaptive_control(A_a, B_a, g_a, lambda_a, init_k_x, init_k_r, init_theta
 
 
 if __name__ == "__main__":
-    goalMotion([4,4,4,4][1,1,1,1] )
+    goalMotion([4,4,4,4], [1,1,1,1] )

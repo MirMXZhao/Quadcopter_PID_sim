@@ -44,10 +44,10 @@ def make_F():
    return F
 
 #NUMBER OF ITERATIONS 
-num_iterations = 2500
+num_iterations = 2000
 
 #DISCRETIZATION
-discretization = 0.003
+step = 0.003
 
 #constants
 m = 29.9 #mass
@@ -76,9 +76,9 @@ des_initial = np.zeros((12, 1))
 
 #starting state of the real drone
 real_initial = np.zeros((12,1))
-real_initial[2] = 20
-real_initial[0] = 10
+real_initial[0] = 1
 real_initial[1] = 0
+real_initial[2] = 0
 
 #global variables changed later on:
 desired_motor_speeds = [0]
@@ -87,6 +87,15 @@ kp = 400
 kv = 150
 kr = 10
 kw = 1
+
+#Adaptive control parameters
+gamma = 0.15
+# A = np.zeros((4,4))
+# A[0,2] = 1
+# A[1,3] = 1
+#initial conditions for kx, kr, thet 
+kx = np.identity(4)*0.1
+thet= np.identity(4)*0.1
 
 ###############################################################################
 # -------------------------------------RK4------------------------------------#
@@ -239,18 +248,61 @@ def make_circles():
    state = []
    r = 2
    speed = 0.005
+   height = 2
    for i in range(num_iterations+3):
-      theta = i*0.005
-      velx = -r * math.sin(theta) * speed/discretization
-      vely = r* math.cos(theta) * speed/discretization
-      state.append(np.array([r*math.cos(theta), r*math.sin(theta), 0,velx,vely,0,0,0,0,0,0,0]).reshape(12, 1))
+      theta = i*speed
+      velx = -r * math.sin(theta) * speed/step 
+      vely = r* math.cos(theta) * speed/step 
+      state.append(np.array([r*math.cos(theta), r*math.sin(theta), height, velx, vely,0,0,0,0,0,0,0]).reshape(12, 1))
    return state
+# def make_circles():
+#    state = []
+#    r = 2
+#    speed = 0.005
+#    for i in range(num_iterations+3):
+#       theta = i*speed
+#       velx = -r * math.sin(theta) * speed/step 
+#       vely = r* math.cos(theta) * speed/step 
+#       state.append(np.array([r*math.cos(theta), r*math.sin(theta), 0, velx, vely,0,0,0,0,0,0,0]).reshape(12, 1))
+#    return state
 
 def constant():
    state = []
    for i in range(num_iterations+3):
       state.append(np.zeros((12,1)))
    return state 
+
+##############################################################################
+# ------------------------------ADAPTIVE CONTROLLER--------------------------#
+##############################################################################
+#seriously what in the everloving heck is going on?
+
+def adaptive(desired_state, real_state):
+  """
+  The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
+  4 by 4 array with all zeroes except in (2,2) and (3,3)
+  We assume that the real motion takes the form x_dot = Ax + thet* x 
+  A and theta are 4 by 4 arrays 
+  """
+  global kx
+  global thet
+  indices = [0, 1, 3, 4]
+  des_state_rel = desired_state[indices] #relevant values of the real state 
+  real_state_rel = real_state[indices] #relevant values of the desired state
+  err = des_state_rel - real_state_rel
+  assert err.shape == (4,1)
+
+  kx_change = gamma*(err@real_state_rel.T)
+  thet_change = - gamma*(err@real_state_rel.T)
+
+  u = kx@real_state_rel + thet@real_state_rel
+  assert u.shape == (4,1)
+
+  kx = kx_change*step +  kx
+  thet = thet_change*step + thet
+  
+  return u
+
 ################################################################################
 # ---------------------------------PID CONTROLLER------------------------------#
 ################################################################################
@@ -289,9 +341,20 @@ def PID(desired_states, cur_real, t):
    PID controller: calculates next force and torque
    Only for one iteration
    """
-   iter = int(t/discretization)
+   iter = int(t/step)
 
-   cur_desired = desired_states[iter]
+   real_desired = desired_states[iter]
+
+   update_desired = adaptive(desired_states[iter-1], cur_real) 
+
+   cur_desired = np.vstack((real_desired[[0,1]] - update_desired[[0,1]], real_desired[2], real_desired[[3,4]] - update_desired[[2,3]], real_desired[5:]))
+   assert cur_desired.shape == (12,1)
+
+   if iter > num_iterations - 30:
+         print(f'{iter = }')
+         print(f'{real_desired = }')
+         print(f'{update_desired = }')
+         print(f'{cur_desired = }')
 
    real_w = cur_real[-3:]
    desired_w = cur_desired[-3:]
@@ -377,7 +440,7 @@ def plot_mulaxis(toplot):
        axs[axis_1, axis_2].set_title(labels[i])
    plt.legend()
 
-def plot2D_both(toplot1, toplot2, save_as_pdf = False, name = "plot2D_both.pdf"):
+def plot2D_both(toplot1, toplot2, save_as_pdf = False, name = "plot2D_both_AC.pdf"):
    """
    same as plot_mulaxis but plots for two different types of states 
    """
@@ -386,9 +449,9 @@ def plot2D_both(toplot1, toplot2, save_as_pdf = False, name = "plot2D_both.pdf")
    x_vals1 = []
    x_vals2 = []
    for i in range(0, len(toplot1)):
-      x_vals1.append(i*discretization)
+      x_vals1.append(i*step)
    for i in range(0, len(toplot2)):
-      x_vals2.append(i*discretization)
+      x_vals2.append(i*step)
 
    for i in range(12):
        y_vals1 = [vector[i] for vector in toplot1]
@@ -414,7 +477,7 @@ def plot3D(toplot):
    z_val = [vector[2] for vector in toplot]
    ax.plot3D(x_val, y_val, z_val, 'orange')
 
-def plot3D_both(toplot1, toplot2, save_as_pdf = False, name = "plot3D_both.pdf"):
+def plot3D_both(toplot1, toplot2, save_as_pdf = False, name = "plot3D_both_AC.pdf"):
    """
    plot both
    """
@@ -432,25 +495,66 @@ def plot3D_both(toplot1, toplot2, save_as_pdf = False, name = "plot3D_both.pdf")
    if save_as_pdf: 
       fig.savefig(name)
 
+def plot_difference(real_states, desired_states, save_as_pdf = False, name = "plot_difference.pdf"):
+   """
+   plot the difference between desired state and real state
+   """
+   fig, axs = plt.subplots(2, 3, layout = "constrained")
+   labels = ["pos1", "pos2", "pos3", "vel1", "vel2", "vel3"]
+   x_vals = []
+   difference_vals = []
+   for i in range(0, min(len(desired_states), len(real_states))):
+      x_vals.append(i*step)
+      difference_vals.append(desired_states[i] - real_states[i])
+   for i in range(6):
+       axis_1 = math.floor(i/3)
+       axis_2 = i%3
+       y_vals = [vector[i] for vector in difference_vals]
+       axs[axis_1, axis_2].plot(x_vals, y_vals, label = "created")
+       axs[axis_1, axis_2].set_title(labels[i])
+       
+   if save_as_pdf: 
+      fig.savefig(name)
+
+def plot_distance(real_states, desired_states, save_as_pdf = False, name = "plot_distance.pdf"):
+   fig = plt.figure()
+   x_vals =[]
+   for i in range(0, num_iterations-2):
+      x_vals.append(i*step)
+
+   y_vals = [] 
+   y_zero = []
+   for i in range(num_iterations-2):
+      y_vals.append(np.linalg.norm(real_states[i][:3] - desired_states[i][:3]))
+      y_zero.append(0)
+   plt.plot(x_vals, y_vals)
+   plt.plot(x_vals, y_zero)
+
+   if save_as_pdf: 
+      fig.savefig(name)
+
 if __name__ == "__main__":
    #makes motor speeds
    desired_motor_speeds = make_motor_speeds_non_int()
    
    #makes desired state based on motor speeds 
-   # desired_states = simulate_runge_kutta(state_func, des_initial, 0, discretization, num_iterations, desired_motor_speeds, True)
+   # desired_states = simulate_runge_kutta(state_func, des_initial, 0, step, num_iterations, desired_motor_speeds, True) 
+   # ^^ makes states based on motor speed 
    # desired_states = constant()
    desired_states = make_circles()
    des_lin_accel = [np.array([[0], [0], [0]])] *num_iterations
    des_rot_accel = [np.array([[0], [0], [0]])] *num_iterations
 
    #PID states based on desired_states
-   PID_states = simulate_runge_kutta(PID, real_initial, 0, discretization, num_iterations-2, desired_states)
+   PID_states = simulate_runge_kutta(PID, real_initial, 0, step, num_iterations-2, desired_states)
 
    #  print(f'{PID_states = }')
    #  print(f'{desired_states = }')
 
    print(f'{evaluate_performance(PID_states, desired_states) = }')
-   plot2D_both(PID_states, desired_states, True)
-   plot3D_both(PID_states, desired_states, True)
+   plot2D_both(PID_states, desired_states)
+   plot3D_both(PID_states, desired_states)
+   plot_difference(PID_states, desired_states)
+   plot_distance(PID_states, desired_states)
    plt.show()
 

@@ -1,5 +1,6 @@
 """
-simulates first order ODE using runge-kutta method
+- simulates first order ODE using RK4
+- compares with Eulers 
 """
 import matplotlib.pyplot as plt
 
@@ -43,7 +44,6 @@ def plot(values):
       plt.plot(range(0, num_rounds), values[i])
    plt.show()
    pass
-
 
 if __name__ == "__main__":
    x0 = 1/2

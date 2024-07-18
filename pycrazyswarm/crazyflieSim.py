@@ -61,17 +61,24 @@ class TimeHelper:
     # but called "sleep" for source-compatibility with real-robot scripts
     def sleep(self, duration):
         # operator // has unexpected (wrong ?) behavior for this calculation.
+        # print("sleep called")
+        # self.dt = 0.001 # TEMPORARY FIX UNTIL I CAN FIND WHERE DT IS BEING DEFINED
         ticks = math.floor((duration + self.sleepResidual) / self.dt)
         self.sleepResidual += duration - self.dt * ticks
         assert -1e-9 <= self.sleepResidual < self.dt
-
+        # print(f'{ticks = }')
+        # print(f'{duration = }')
+        # print(f'{self.dt = }')
+        # print(f'{self.sleepResidual = }')
         for _ in range(int(ticks)):
+            # print("this loop is running")
             self.visualizer.update(self.t, self.crazyflies)
             if self.output:
                 self.output.update(self.t, self.crazyflies)
             if self.videoWriter is not None:
                 frame = self.visualizer.render()
                 self.videoWriter.writeFrame(frame)
+            # print("step called")
             self.step(self.dt)
 
     # Mock for abstraction of rospy.Rate.sleep().
@@ -83,7 +90,8 @@ class TimeHelper:
     def isShutdown(self):
         return False
 
-    def addObserver(self, observer):
+    def addObserver(self, observer):###################################
+#does not obey physical logic but that i
         self.observers.append(observer)
 
     def _atexit(self):
@@ -381,6 +389,7 @@ class Crazyflie:
         pass
 
     def integrate(self, time, disturbanceSize, maxVel):
+        # print("integrating")
         if self.mode == Crazyflie.MODE_HIGH_POLY:
             self.setState = firm.plan_current_goal(self.planner, self.time())
 
@@ -395,6 +404,8 @@ class Crazyflie:
             )
         else:
             setState = firm.traj_eval(self.setState)
+            # print(f'{setState.pos = }')
+            # print(f'{self.state.pos = }')
 
         if self.mode == Crazyflie.MODE_IDLE:
             return
@@ -413,6 +424,7 @@ class Crazyflie:
         # feedforward commands. We assume this is not a problem.
 
         velocity = firm.vclampnorm(velocity, maxVel)
+        
 
         disturbance = disturbanceSize * np.random.normal(size=3)
         velocity = velocity + firm.mkvec(*disturbance)

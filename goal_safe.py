@@ -100,6 +100,12 @@ def motion(v):
         allcfs.crazyflies[i].cmdVelocityWorld([v[3*i],v[3*i+1],v[3*i+2]], yawRate=0) # change this so it fits with the definition of v
     timeHelper.sleep(0.1)
 
+def motion(v):
+    for i in range(len(allcfs.crazyflies)):
+        allcfs.crazyflies[i].cmdVelocityWorld([v[3*i],v[3*i+1],v[3*i+2]], yawRate=0) # change this so it fits with the definition of v
+    timeHelper.sleep(0.1)
+
+
 if __name__ == "__main__":
     allcfs.takeoff(targetHeight=Z, duration=2.0+Z)
     timeHelper.sleep(2 + Z)

@@ -1,3 +1,7 @@
+"""
+- plug in motor speeds to get states
+- bad discretization 
+"""
 import numpy as np
 from qpsolvers import solve_qp
 import random 

@@ -5,6 +5,8 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 import matplotlib.pyplot as plt
 import numpy as np
 
+from pycrazyswarm.crazyflieSim import Crazyflie
+
 
 class VisMatplotlib:
     def __init__(self):
@@ -48,6 +50,7 @@ class VisMatplotlib:
         ys = []
         zs = []
         cs = []
+        cf: Crazyflie
         for cf in crazyflies:
             x, y, z = cf.position()
             color = cf.ledRGB
