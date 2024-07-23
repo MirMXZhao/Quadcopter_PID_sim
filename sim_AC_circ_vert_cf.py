@@ -45,7 +45,7 @@ def make_F():
    return F
 
 #NUMBER OF ITERATIONS 
-num_iterations = 500
+num_iterations = 1500
 
 #DISCRETIZATION
 step = 0.003
@@ -85,14 +85,17 @@ real_initial[2] = 0
 desired_motor_speeds = [0]
 
 #Adaptive control parameters
-gamma = 0.4
+gamma = 0.6
 # A = np.zeros((4,4))
 # A[0,2] = 1
 # A[1,3] = 1
 #initial conditions for kx, kr, thet 
 kx = np.identity(6)*0.1
-thet= np.array([1, 1, 1, 1, 1, 1, 1]).reshape((-1,1)) * 0.6
+thet= np.ones((42,1))*0.1
+random.seed(1) ## CHANGE THIS WHEN WANT TO TEST A DIFFERENT SET OF RANDOM NUMBERS
+dist_rand = [random.uniform(0.1, 0.5) for _ in range (15)]
 disturbance = np.array([0.5, 0.4, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
+#CHANGE TO CONSTANT DISTURBANCE TO SEE IT WORKING
 
 stored_thet = [] 
 
@@ -157,7 +160,7 @@ def cf_sim(desired_state):
       update_desired = adaptive(i, desired_state[i-1], cur_state)
       cur_desired = np.vstack((real_desired[[0,1,2,3,4,5]] + update_desired[[0,1,2,3,4,5]], real_desired[6:]))
 
-      motion(np.add(cur_desired, disturbance), [0,0,0])
+      motion(np.add(cur_desired, disturbance(i)), [0,0,0])
    return recorded_states
 
 def cf_sim_no_AC(desired_state):
@@ -167,7 +170,7 @@ def cf_sim_no_AC(desired_state):
    recorded_states = []
    for i in range(num_iterations):
       cur_desired = desired_state[i]
-      motion(np.add(cur_desired, disturbance), [0,0,0])
+      motion(np.add(cur_desired, disturbance(i)), [0,0,0])
       pos = cf.position()
       vel = (cur_desired[3:6].reshape(3,)).tolist()
       cur_state = np.array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]).reshape(-1,1)
@@ -187,6 +190,19 @@ def motion(state, accel):
    cf.cmdFullState(pos, vel, acc, yaw, ome)
    timeHelper.sleep(0.003)
    # timeHelper.sleepForRate(sleepRate)
+
+def disturbance(iter):
+   """
+   continuous disturbance function
+   """
+   funcs = [math.cos, math.sin, math.cos, math.sin, math.cos]
+   output = np.zeros((12,1))
+   for i in range(5):
+      output[0] += funcs[i](dist_rand[i]*iter*0.5) + 0.3
+      output[1] += funcs[i](dist_rand[i+5]*iter*0.5) + 0.15
+      output[2] += funcs[i](dist_rand[i+10]*iter*0.5) + 0.03
+   assert output.shape == (12,1)
+   return output/3
 
 ##############################################################################
 # ---------------------------------TEST STATES-------------------------------#
@@ -209,6 +225,12 @@ def make_circles():
 # ------------------------------ADAPTIVE CONTROLLER--------------------------#
 ##############################################################################
 
+def make_phi_x(real_state):
+   arr = []
+   for i in range(6):
+      arr.append(np.identity(6)*real_state[i])
+   return np.hstack((arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], np.identity(6)))
+
 def adaptive(iter, desired_state, real_state):
   """
   The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
@@ -224,12 +246,12 @@ def adaptive(iter, desired_state, real_state):
   err = des_state_rel - real_state_rel
   assert err.shape == (6,1)
 
-  phi_x = np.hstack((real_state_rel, np.identity(6)))
-  assert phi_x.shape == (6, 7)
+  phi_x = make_phi_x(real_state_rel)
+  assert phi_x.shape == (6, 42)
 
   kx_change = gamma*(err@real_state_rel.T)
   thet_change = - gamma*(phi_x.T@err)
-  assert thet_change.shape == (7,1)
+  assert thet_change.shape == (42,1)
   
   kx = kx_change*step +  kx
   thet = thet_change*step + thet
@@ -358,10 +380,10 @@ if __name__ == "__main__":
    #  print(f'{desired_states = }')
 
    #plotting + evaluation
+   plot2D(stored_thet)
    plot2D_both(real_states, desired_states)
    plot3D_both(real_states, desired_states, False, "pl_AC_3D_disturb_vert.pdf")
    plot_distance(real_states, desired_states, False,  "pl_AC_dist_disturb_vert.pdf")
    plot_difference(real_states, desired_states)
    print(f'{evaluate_performance(real_states, desired_states) = }')
    plt.show()
-

@@ -18,11 +18,59 @@ import matplotlib.pyplot as plt
 #############################################################################
 # ---------------------------------CONSTANTS--------------------------------#
 #############################################################################
+
+# makes position constants
+def make_arm_position():
+   """
+   makes position column vectors based on the length of the propeller arm
+   the front right motor is labelled with 1 and the labelling is done CCW
+   """
+   pos_mul = p/math.sqrt(2)
+   m1 = pos_mul* np.array([1,1,0]).reshape(-1, 1)
+   m2 = pos_mul* np.array([-1,1,0]).reshape(-1, 1)
+   m3 = pos_mul* np.array([-1,-1,0]).reshape(-1, 1)
+   m4 = pos_mul* np.array([1,-1,0]).reshape(-1, 1)
+   return [m1, m2, m3, m4]
+
+def make_F():
+   """
+   makes F matrix (multiplied to motor speed matrix) to calculate desired states
+   """
+   forces = np.hstack((cf*e3, cf*e3, cf*e3, cf*e3))
+   combine_list = []
+   for count, ele in enumerate(positions):
+       combine_list.append(cd*e3*(-1)**count + (cf*np.cross(ele.ravel(), e3.ravel()).reshape(-1,1)))
+   torques = np.hstack(tuple(combine_list))
+   F = np.vstack((forces, torques))
+   return F
+
 #NUMBER OF ITERATIONS 
-num_iterations = 800
+num_iterations = 1500
 
 #DISCRETIZATION
 step = 0.003
+
+#constants
+m = 29.9 #mass
+g = 9.807 #gravity
+
+#desired control constants
+cf = 3.1582
+cd = 0.0079379
+
+#inertia
+Ixx = 0.001395
+Iyy = 0.001395
+Izz = 0.002173
+J = np.array([[Ixx, 0,0], [0, Iyy, 0], [0, 0, Izz]])
+
+#arm positions
+p = 0.03973
+positions = make_arm_position()
+
+#constants needed for calculation
+e3 = np.array([0,0,1]).reshape(-1, 1)
+F = make_F()
 
 #desired starting state
 des_initial = np.zeros((12, 1))
@@ -42,9 +90,11 @@ gamma = 0.6
 # A[0,2] = 1
 # A[1,3] = 1
 #initial conditions for kx, kr, thet 
-kx = np.identity(4)*0.1
-thet= np.array([1, 1, 1, 1, 1]).reshape((-1,1)) * 0.6
-disturbance = np.array([0.5, 0.4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
+kx = np.identity(6)*0.1
+thet= np.ones((42,1))*0.1
+random.seed(1) ## CHANGE THIS WHEN WANT TO TEST A DIFFERENT SET OF RANDOM NUMBERS
+dist_rand = [random.uniform(0.1, 0.5) for _ in range (15)]
+disturbance = np.array([0.5, 0.4, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
 
 stored_thet = [] 
 
@@ -106,17 +156,10 @@ def cf_sim(desired_state):
       recorded_states.append(np.vstack((cur_state, desired_state[i-1][6:])))
       assert np.vstack((cur_state, desired_state[i-1][6:])).shape == (12,1)
 
-      update_desired = adaptive(i, desired_state[i-1], cur_state)
-      cur_desired = np.vstack((real_desired[[0,1]] + update_desired[[0,1]], real_desired[2], real_desired[[3,4]] + update_desired[[2,3]], real_desired[5:]))
+      update_desired = adaptive(desired_state[i-1], cur_state)
+      cur_desired = np.vstack((real_desired[[0,1,2,3,4,5]] + update_desired[[0,1,2,3,4,5]], real_desired[6:]))
 
-      if i > num_iterations - 12:
-         print(f'{i = }')
-         print(f'{cur_state = }')
-         print(f'{real_desired = }')
-         print(f'{update_desired = }')
-         print(f'{cur_desired = }')
-
-      motion(np.add(cur_desired, disturbance), [0,0,0])
+      motion(np.add(cur_desired, disturbance(i)), [0,0,0])
    return recorded_states
 
 def cf_sim_no_AC(desired_state):
@@ -126,7 +169,7 @@ def cf_sim_no_AC(desired_state):
    recorded_states = []
    for i in range(num_iterations):
       cur_desired = desired_state[i]
-      motion(np.add(cur_desired, disturbance), [0,0,0])
+      motion(np.add(cur_desired, disturbance(i)), [0,0,0])
       pos = cf.position()
       vel = (cur_desired[3:6].reshape(3,)).tolist()
       cur_state = np.array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]).reshape(-1,1)
@@ -146,6 +189,19 @@ def motion(state, accel):
    cf.cmdFullState(pos, vel, acc, yaw, ome)
    timeHelper.sleep(0.003)
    # timeHelper.sleepForRate(sleepRate)
+
+def disturbance(iter):
+   """
+   continuous disturbance function
+   """
+   funcs = [math.cos, math.sin, math.cos, math.sin, math.cos]
+   output = np.zeros((12,1))
+   for i in range(5):
+      output[0] += funcs[i](dist_rand[i]*iter*0.5) + 0.3
+      output[1] += funcs[i](dist_rand[i+5]*iter*0.5) + 0.15
+      output[2] += funcs[i](dist_rand[i+10]*iter*0.5) + 0.03
+   assert output.shape == (12,1)
+   return output/3
 
 ##############################################################################
 # ---------------------------------TEST STATES-------------------------------#
@@ -168,7 +224,13 @@ def make_circles():
 # ------------------------------ADAPTIVE CONTROLLER--------------------------#
 ##############################################################################
 
-def adaptive(iter, desired_state, real_state):
+def make_phi_x(real_state):
+   arr = []
+   for i in range(6):
+      arr.append(np.identity(6)*real_state[i])
+   return np.hstack((arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], np.identity(6)))
+
+def adaptive(desired_state, real_state):
   """
   The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
   4 by 4 array with all zeroes except in (2,2) and (3,3)
@@ -177,33 +239,29 @@ def adaptive(iter, desired_state, real_state):
   """
   global kx
   global thet
-  indices = [0, 1, 3, 4]
+  indices = [0, 1, 2, 3, 4, 5]
   des_state_rel = desired_state[indices] #relevant values of the real state 
   real_state_rel = real_state[indices] #relevant values of the desired state
   err = des_state_rel - real_state_rel
-  assert err.shape == (4,1)
+  assert err.shape == (6,1)
 
-  phi_x = np.hstack((real_state_rel, np.identity(4)))
-  assert phi_x.shape == (4,5)
+  phi_x = make_phi_x(real_state_rel)
+  assert phi_x.shape == (6, 42)
 
   kx_change = gamma*(err@real_state_rel.T)
   thet_change = - gamma*(phi_x.T@err)
-  assert thet_change.shape == (5,1)
+  assert thet_change.shape == (42,1)
   
   kx = kx_change*step +  kx
   thet = thet_change*step + thet
 
   u = kx@real_state_rel - phi_x@thet
-  assert u.shape == (4,1)
+  assert u.shape == (6,1)
 
   stored_thet.append(thet)
-
-  if iter > num_iterations - 12:
-     print(f'{kx = }')
-     print(f'{thet = }')
-     print(f'{err = }')
   return u
 
+def adaptive_2
 ###########################################################################
 # --------------------------EVALUATION METRIC-----------------------------#
 ###########################################################################
@@ -219,12 +277,13 @@ def evaluate_performance(PID_states, desired_states):
 # ---------------------------------PLOTTING-------------------------------#
 ###########################################################################
 def plot2D(toplot):
-   x_vals = []
-   for i in range(0, len(toplot)):
-      x_vals.append(i*step)
-   for i in range(5):
-      y_vals = [vector[i] for vector in toplot]
-      plt.plot(x_vals, y_vals, label = i)
+    x_vals = []
+    for i in range(0, len(toplot)):
+       x_vals.append(i*step)
+
+    for i in range(5):
+       y_vals = [vector[i] for vector in toplot]
+       plt.plot(x_vals, y_vals, label = i)
 
 
 def plot2D_both(toplot1, toplot2, save_as_pdf = False, name = "plot2D_both_AC_cf.pdf"):
@@ -323,9 +382,8 @@ if __name__ == "__main__":
    #plotting + evaluation
    plot2D(stored_thet)
    plot2D_both(real_states, desired_states)
-   plot3D_both(real_states, desired_states, True, "pl_AC_3D_disturb.pdf")
-   plot_distance(real_states, desired_states, True,  "pl_AC_dist_disturb.pdf")
-   plot_difference(real_states, desired_states, True, "pl_AC_diff_disturb.pdf")
+   plot3D_both(real_states, desired_states, False, "pl_AC_3D_disturb_vert.pdf")
+   plot_distance(real_states, desired_states, False,  "pl_AC_dist_disturb_vert.pdf")
+   plot_difference(real_states, desired_states)
    print(f'{evaluate_performance(real_states, desired_states) = }')
    plt.show()
-
