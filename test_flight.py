@@ -12,7 +12,7 @@ crazyflies_yaml = """
 crazyflies:
 - id: 1
   channel: 110
-  initialPosition: [4.0, 0.0, 0.0]
+  initialPosition: [0, 0.0, 0.0]
 """
 
 swarm = Crazyswarm(crazyflies_yaml=crazyflies_yaml)
@@ -24,7 +24,7 @@ num_cf = len(allcfs.crazyflies)
 Z = 1.0
 
 #which test to run 
-test_num = 4
+test_num = 5
 
 def plot3D_both(toplot1, toplot2):
    """
@@ -94,7 +94,12 @@ if __name__ == "__main__":
             cf.cmdFullState(state[i][0:3], state[i][3:6], state[i][6:9], 0, [0,0,0])
             timeHelper.sleep(0.003)
             real_states.append(cf.position())
-        
         plot3D_both(real_states, state)
         plt.show()
+    elif test_num == 5: 
+        for _ in range(100):
+            cf.cmdFullState([0,0,0], [0,0,0], [0,0,0], 0, [0,0,0])
+            timeHelper.sleep(0.003)
+            print(cf.position())
+
 

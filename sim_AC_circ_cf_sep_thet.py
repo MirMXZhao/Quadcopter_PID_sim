@@ -45,7 +45,7 @@ def make_F():
    return F
 
 #NUMBER OF ITERATIONS 
-num_iterations = 1500
+num_iterations = 1000
 
 #DISCRETIZATION
 step = 0.003
@@ -76,34 +76,34 @@ F = make_F()
 des_initial = np.zeros((12, 1))
 
 #starting state of the real drone
-real_initial = np.zeros((12,1))
-real_initial[0] = 1
-real_initial[1] = 0
-real_initial[2] = 0
+real_initial = [1,0,0]
 
 #global variables changed later on:
 desired_motor_speeds = [0]
 
 #Adaptive control parameters
-gamma = 0.6
+gamma = 1.2
 # A = np.zeros((4,4))
 # A[0,2] = 1
 # A[1,3] = 1
 #initial conditions for kx, kr, thet 
 kx = np.identity(6)*0.1
-thet= np.ones((42,1))*0.1
+thet= [np.ones((6,1))*0 for _ in range(7)] 
+thet2 = [np.ones((6,1))*0 for _ in range(2)]
 random.seed(1) ## CHANGE THIS WHEN WANT TO TEST A DIFFERENT SET OF RANDOM NUMBERS
 dist_rand = [random.uniform(0.1, 0.5) for _ in range (15)]
-disturbance = np.array([0.5, 0.4, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
+disturbance_const = np.array([0.5, 0.4, 0.3, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
+#CHANGE TO CONSTANT DISTURBANCE TO SEE IT WORKING
 
 stored_thet = [] 
+stored_dist = [] 
 
 #CRAZYFLIE INITIALIZATION
 crazyflies_yaml = """
 crazyflies:
 - id: 1
   channel: 110
-  initialPosition: [1, 0 , 0.0]
+  initialPosition: [0, 0 , 0.0]
 """
 swarm = Crazyswarm(crazyflies_yaml=crazyflies_yaml)
 timeHelper = swarm.timeHelper
@@ -111,6 +111,29 @@ allcfs = swarm.allcfs
 cf = allcfs.crazyflies[0] #There should only be one crazyflie for this program
 sleepRate = 15
 num_cf = len(allcfs.crazyflies)
+
+###############################################################################
+# -----------------------------Find the best gamma----------------------------#
+###############################################################################
+def find_gamma(desired_state):
+   """
+   finds the best value of gamma by testing a bunch
+   """
+   lowest_eval = float("inf")
+   lowest_gamma = 0
+   stored_eval = []
+   for i in range(21, 25):
+      gamma = i*0.05
+      real_states = cf_sim(gamma, desired_state)
+      eval = evaluate_performance(real_states, desired_states)
+      stored_eval.append((gamma, eval))
+      print(f'{gamma = }')
+      print(f'{eval = }')
+      if eval < lowest_eval:
+         lowest_gamma = gamma
+         lowest_eval = eval
+   print(real_states)
+   return (lowest_gamma, stored_eval)
 
 ###############################################################################
 # --------------------------RK4 + Crazyflie simulator-------------------------#
@@ -141,12 +164,14 @@ def simulate_runge_kutta(fn, x0, t0, step_size, num_iters, des):
       cur_t = cur_t + step_size
   return simulated_x
 
-def cf_sim(desired_state):
+def cf_sim(gamma, desired_state):
    """
    simulates crazyflie, incorporating adaptive control
    """
    recorded_states = []
    cur_desired = np.zeros((12,1))
+   cf.cmdFullState(real_initial, [0,0,0], [0,0,0], 0, [0,0,0])
+   timeHelper.sleep(0.3)
    for i in range(1,num_iterations):
       real_desired = desired_state[i]
 
@@ -156,7 +181,7 @@ def cf_sim(desired_state):
       recorded_states.append(np.vstack((cur_state, desired_state[i-1][6:])))
       assert np.vstack((cur_state, desired_state[i-1][6:])).shape == (12,1)
 
-      update_desired = adaptive(desired_state[i-1], cur_state)
+      update_desired = adaptive(gamma, desired_state[i-1], cur_state)
       cur_desired = np.vstack((real_desired[[0,1,2,3,4,5]] + update_desired[[0,1,2,3,4,5]], real_desired[6:]))
 
       motion(np.add(cur_desired, disturbance(i)), [0,0,0])
@@ -187,6 +212,7 @@ def motion(state, accel):
    yaw = 0 
    # cf.cmdVelocityWorld(vel, yaw)
    cf.cmdFullState(pos, vel, acc, yaw, ome)
+   # cf.cmdFullState([0,0,0], [0,0,0], [0,0,0], 0, [0,0,0])
    timeHelper.sleep(0.003)
    # timeHelper.sleepForRate(sleepRate)
 
@@ -197,10 +223,11 @@ def disturbance(iter):
    funcs = [math.cos, math.sin, math.cos, math.sin, math.cos]
    output = np.zeros((12,1))
    for i in range(5):
-      output[0] += funcs[i](dist_rand[i]*iter*0.5) + 0.3
-      output[1] += funcs[i](dist_rand[i+5]*iter*0.5) + 0.15
-      output[2] += funcs[i](dist_rand[i+10]*iter*0.5) + 0.03
+      output[0] += funcs[i](dist_rand[i]*iter*0.07) + 0.3
+      output[1] += funcs[i](dist_rand[i+5]*iter*0.07) + 0.15
+      output[2] += funcs[i](dist_rand[i+10]*iter*0.07) + 0.03
    assert output.shape == (12,1)
+   stored_dist.append(output/2)
    return output/3
 
 ##############################################################################
@@ -230,38 +257,40 @@ def make_phi_x(real_state):
       arr.append(np.identity(6)*real_state[i])
    return np.hstack((arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], np.identity(6)))
 
-def adaptive(desired_state, real_state):
-  """
-  The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
-  4 by 4 array with all zeroes except in (2,2) and (3,3)
-  We assume that the real motion takes the form x_dot = Ax + thet* x 
-  A and theta are 4 by 4 arrays 
-  """
-  global kx
-  global thet
-  indices = [0, 1, 2, 3, 4, 5]
-  des_state_rel = desired_state[indices] #relevant values of the real state 
-  real_state_rel = real_state[indices] #relevant values of the desired state
-  err = des_state_rel - real_state_rel
-  assert err.shape == (6,1)
+def adaptive(gamma, desired_state, real_state):
+   """
+   The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
+   4 by 4 array with all zeroes except in (2,2) and (3,3)
+   We assume that the real motion takes the form x_dot = Ax + thet* x 
+   A and theta are 4 by 4 arrays 
+   """
+   global kx
+   global thet
+   indices = [0, 1, 2, 3, 4, 5]
+   des_state_rel = desired_state[indices] #relevant values of the real state 
+   real_state_rel = real_state[indices] #relevant values of the desired state
+   err = des_state_rel - real_state_rel
+   assert err.shape == (6,1)
 
-  phi_x = make_phi_x(real_state_rel)
-  assert phi_x.shape == (6, 42)
+   kx_change = gamma*(err@real_state_rel.T)
+   kx = kx_change*step +  kx
+   u = kx@real_state_rel
+   # print(f'{kx = }')
+   # print(f'{u = }')
+   phis = real_state_rel.reshape(6,).tolist()
+   phis.append(1)
+   for i in range(7):
+      thet_change = - gamma*phis[i]*(np.identity(6)@err)
+      thet[i] = thet[i] + thet_change*step
+      # print(f'{thet[i] =}')
+      assert thet[i].shape == (6,1)
+      u = u - phis[i]*np.identity(6)@thet[i]
 
-  kx_change = gamma*(err@real_state_rel.T)
-  thet_change = - gamma*(phi_x.T@err)
-  assert thet_change.shape == (42,1)
-  
-  kx = kx_change*step +  kx
-  thet = thet_change*step + thet
+   assert u.shape == (6,1)
+   # print(f'{u = }')
+   stored_thet.append(thet)
+   return u
 
-  u = kx@real_state_rel - phi_x@thet
-  assert u.shape == (6,1)
-
-  stored_thet.append(thet)
-  return u
-
-def adaptive_2
 ###########################################################################
 # --------------------------EVALUATION METRIC-----------------------------#
 ###########################################################################
@@ -276,15 +305,14 @@ def evaluate_performance(PID_states, desired_states):
 ###########################################################################
 # ---------------------------------PLOTTING-------------------------------#
 ###########################################################################
-def plot2D(toplot):
-    x_vals = []
-    for i in range(0, len(toplot)):
-       x_vals.append(i*step)
+def plot2D(toplot, num_val):
+   x_vals = []
+   for i in range(0, len(toplot)):
+      x_vals.append(i*step)
 
-    for i in range(5):
-       y_vals = [vector[i] for vector in toplot]
-       plt.plot(x_vals, y_vals, label = i)
-
+   for i in range(num_val):
+      y_vals = [vector[i] for vector in toplot]
+      plt.plot(x_vals, y_vals, label = i)
 
 def plot2D_both(toplot1, toplot2, save_as_pdf = False, name = "plot2D_both_AC_cf.pdf"):
    """
@@ -373,14 +401,18 @@ if __name__ == "__main__":
    # desired_states = constant()
    desired_states = make_circles()
 
-   real_states = cf_sim(desired_states)
+   # gamma_test = find_gamma(desired_states)
+   # print(gamma_test)
+
+   real_states = cf_sim(gamma, desired_states)
    # real_states = cf_sim_no_AC(desired_states)
 
-   #  print(f'{PID_states = }')
-   #  print(f'{desired_states = }')
+   # print(f'{real_states = }')
+   # print(f'{desired_states = }')
 
    #plotting + evaluation
-   plot2D(stored_thet)
+   # plot2D(stored_thet, 5)
+   plot2D(stored_dist, 3)
    plot2D_both(real_states, desired_states)
    plot3D_both(real_states, desired_states, False, "pl_AC_3D_disturb_vert.pdf")
    plot_distance(real_states, desired_states, False,  "pl_AC_dist_disturb_vert.pdf")
