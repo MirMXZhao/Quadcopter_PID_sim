@@ -1,3 +1,5 @@
+
+
 """
 - Creates desired motor speeds
 - Simulates quadcopter motion based on the desired motor speed 
@@ -45,7 +47,7 @@ def make_F():
    return F
 
 #NUMBER OF ITERATIONS 
-num_iterations = 3500
+num_iterations = 2500
 
 #DISCRETIZATION
 step = 0.003
@@ -85,7 +87,7 @@ real_initial[2] = 0
 desired_motor_speeds = [0]
 
 #Adaptive control parameters
-gamma = 0.4
+gamma = 0.2
 # A = np.zeros((4,4))
 # A[0,2] = 1
 # A[1,3] = 1
@@ -222,7 +224,7 @@ def make_circles():
    state = []
    r = 2
    speed = 0.005
-   height = 0
+   height = 2
    for i in range(num_iterations+3):
       theta = i*speed
       velx = -r * math.sin(theta) * speed/step 
@@ -295,14 +297,10 @@ def plot2D(toplot, num_val):
    for i in range(0, len(toplot)):
       x_vals.append(i*step)
 
-   fig, ax = plt.subplots()
    for i in range(num_val):
       y_vals = [vector[i] for vector in toplot]
-      ax.plot(x_vals, y_vals, label = i)
-   
-   ax.set_title("THETA VALUES")
-   ax.set_xlabel("Time (s)")
-   ax.set_ylabel("Value")
+      plt.plot(x_vals, y_vals, label = i)
+
 
 def plot2D_both(toplot1, toplot2, save_as_pdf = False, name = "plot2D_both_AC_cf.pdf"):
    """
@@ -344,7 +342,6 @@ def plot3D_both(toplot1, toplot2, save_as_pdf = False, name = "plot3D_both_AC_cf
    z_val2 = [vector[2] for vector in toplot2]
    ax.plot3D(x_val1, y_val1, z_val1, 'blue', label = "real")
    ax.plot3D(x_val2, y_val2, z_val2, 'orange', label = "desired")
-   ax.set_aspect("equal")
 
    if save_as_pdf: 
       fig.savefig(name)
@@ -371,22 +368,18 @@ def plot_difference(real_states, desired_states, save_as_pdf = False, name = "pl
       fig.savefig(name)
       
 def plot_distance(real_states, desired_states, save_as_pdf = False, name = "plot_distance.pdf"):
-   fig, ax = plt.subplots()
-
+   fig = plt.figure()
    x_vals =[]
    for i in range(0, num_iterations-2):
       x_vals.append(i*step)
+
    y_vals = [] 
    y_zero = []
    for i in range(num_iterations-2):
       y_vals.append(np.linalg.norm(real_states[i][:3] - desired_states[i][:3]))
       y_zero.append(0)
-   ax.plot(x_vals, y_vals)
-   ax.plot(x_vals, y_zero)
-
-   ax.set_title("Error")
-   ax.set_xlabel("Time (s)")
-   ax.set_ylabel("Distance (m)")
+   plt.plot(x_vals, y_vals)
+   plt.plot(x_vals, y_zero)
 
    if save_as_pdf: 
       fig.savefig(name)
@@ -403,11 +396,11 @@ if __name__ == "__main__":
    #  print(f'{desired_states = }')
 
    #plotting + evaluation
-   plot2D(stored_thet, 5)
+   # plot2D(stored_thet, 5)
    # plot2D(stored_dist, 3)
    plot2D_both(real_states, desired_states)
-   plot3D_both(real_states, desired_states, False, "pl_noAC_3D_disturb_vert1.pdf")
-   plot_distance(real_states, desired_states, False,  "pl_noAC_dist_disturb_vert1.pdf")
+   plot3D_both(real_states, desired_states, False, "pl_AC_3D_disturb_vert.pdf")
+   plot_distance(real_states, desired_states, False,  "pl_AC_dist_disturb_vert.pdf")
    plot_difference(real_states, desired_states)
    print(f'{evaluate_performance(real_states, desired_states) = }')
    plt.show()

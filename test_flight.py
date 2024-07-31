@@ -24,7 +24,7 @@ num_cf = len(allcfs.crazyflies)
 Z = 1.0
 
 #which test to run 
-test_num = 5
+test_num = 6
 
 def plot3D_both(toplot1, toplot2):
    """
@@ -101,5 +101,12 @@ if __name__ == "__main__":
             cf.cmdFullState([0,0,0], [0,0,0], [0,0,0], 0, [0,0,0])
             timeHelper.sleep(0.003)
             print(cf.position())
+    elif test_num == 6:
+        allcfs.takeoff(targetHeight=Z, duration=1.0+Z)
+        timeHelper.sleep(1.5+Z)
+        cf.goTo([1,0,1], 0, 2)
+        timeHelper.sleep(2)
+        # cf.cmdFullState([0,0,1.1], [0,0,0], [0,0,0], 0, [0,0,0])
+        # timeHelper(0.04)
 
 

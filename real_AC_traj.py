@@ -13,13 +13,17 @@ from qpsolvers import solve_qp
 import random
 import math
 import scipy
+import os
+import datetime
+import pickle
+
 import matplotlib.pyplot as plt
 
 #############################################################################
 # ---------------------------------CONSTANTS--------------------------------#
 #############################################################################
 #NUMBER OF ITERATIONS 
-num_iterations = 3000
+num_iterations = 9000
 
 #DISCRETIZATION
 step = 0.003
@@ -37,14 +41,13 @@ real_initial[2] = 0
 desired_motor_speeds = [0]
 
 #Adaptive control parameters
-gamma = 0.2
+gamma = 0.6
 # A = np.zeros((4,4))
 # A[0,2] = 1
 # A[1,3] = 1
 #initial conditions for kx, kr, thet 
 kx = np.identity(6)*0.01
 thet= np.ones((12,1))*0.0
-thet2 = np.ones((2, 36))*0.0
 random.seed(1) ## CHANGE THIS WHEN WANT TO TEST A DIFFERENT SET OF RANDOM NUMBERS
 dist_rand = [random.uniform(0.1, 0.5) for _ in range (15)]
 disturbance_const = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
@@ -53,27 +56,24 @@ disturbance_const = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1
 #Trajectory parameter
 alpha = 0.8
 
-stored_thet = []
+stored_thet = [] 
 stored_dist = []
 stored_gamma = []
 
 #CRAZYFLIE INITIALIZATION
-crazyflies_yaml = """
-crazyflies:
-- id: 1
-  channel: 110
-  initialPosition: [0.7 , 0, 0.3]
-"""
-swarm = Crazyswarm(crazyflies_yaml=crazyflies_yaml)
+swarm = Crazyswarm()
 timeHelper = swarm.timeHelper
 allcfs = swarm.allcfs
 cf = allcfs.crazyflies[0] #There should only be one crazyflie for this program
 sleepRate = 15
 num_cf = len(allcfs.crazyflies)
 
+#DESIRED MOTION
 r = 0.7
 speed = 0.003
-height = 0.3
+height = 0.6
+
+
 ###############################################################################
 # -----------------------------Crazyflie simulator----------------------------#
 ###############################################################################
@@ -86,8 +86,6 @@ def cf_sim(desired_state):
    recorded_states = []
    cur_desired = np.zeros((12,1))
    traj_prev = False
-   # cf.cmdFullState([2,0,0], [0,0,0], [0,0,0], 0, [0,0,0])
-   # timeHelper.sleep(0.01)
    for i in range(1,num_iterations):
       real_desired = desired_state[i]
 
@@ -112,7 +110,7 @@ def cf_sim(desired_state):
       update_desired = adaptive(new_desired, cur_state)
       cur_desired = np.vstack((new_desired[[0,1,2,3,4,5]] + update_desired[[0,1,2,3,4,5]], new_desired[6:]))
 
-      motion(np.add(cur_desired, sim_wind(cur_desired)), [0,0,0])
+      motion(np.add(cur_desired, disturbance_const), [0,0,0])
 
    return recorded_states
 
@@ -123,7 +121,8 @@ def cf_sim_no_AC(desired_state):
    recorded_states = []
    for i in range(num_iterations):
       cur_desired = desired_state[i]
-      motion(np.add(cur_desired, sim_wind(cur_desired)), [0,0,0])
+      pos = cf.position()
+      motion(np.add(cur_desired, sim_wind(pos)), [0,0,0])
       pos = cf.position()
       vel = (cur_desired[3:6].reshape(3,)).tolist()
       cur_state = np.array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]).reshape(-1,1)
@@ -158,19 +157,15 @@ def disturbance(iter):
    stored_dist.append(output/2)
    return output/3
 
-std_dev = r*0.7
-mean_x = 0.3
-mean_y= -0.8
-w_strength = 0.3
+std_dev = r/2
+mean = 0 
 
 def sim_wind(x):
    x_val = x[0]
-   y_val = x[1]
-   normal_val = 1/(std_dev*math.sqrt(2*math.pi))*(math.e**(-((x_val - mean_x)**2 + (y_val - mean_y)**2)/(2*std_dev**2)))
-   # print(normal_val)
-   # print(x)
-   return np.array([0,normal_val[0]*w_strength,0, 0,0,0, 0,0,0, 0,0,0]).reshape(-1,1)
-
+   print(x_val)
+   normal_val = 1/(std_dev*math.sqrt(2*math.pi))*(math.e**(-(x_val - mean)**2/(2*std_dev**2)))
+   print(normal_val)
+   return normal_val
 ##############################################################################
 # ---------------------------------TEST STATES-------------------------------#
 ##############################################################################
@@ -200,23 +195,6 @@ def make_phi_x(real_state):
       arr.append(np.identity(3)*real_state[i])
    return np.hstack((arr[0], arr[1], arr[2], np.identity(3)))
 
-def make_phi2_x(real_state): 
-   x = real_state[0]
-   y = real_state[1] 
-   x_val = [-0.3, -0.15, 0, 0.15, 0.3, 0.45]
-   y_val = [-0.3, -0.15, 0, 0.15, 0.3, 0.45]
-   x_num = len(x_val) 
-   y_num = len(y_val)
-   exponents = np.zeros((x_num*y_num, 1))
-   counter = 0
-   for i in range(x_num):
-      for j in range(y_num):
-         exponents[counter] = - ((x-x_val[i])**2 + (y - y_val[j])**2)
-         # exponents[counter] = ((x-x_val[i])**2 + (y - y_val[j])**2)**0.5 #for some reason this works better even though it doesn't make sense
-         counter +=1 
-   output = np.exp(exponents)
-   return output
-
 def adaptive(desired_state, real_state):
   """
   The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
@@ -226,7 +204,6 @@ def adaptive(desired_state, real_state):
   """
   global kx
   global thet
-  global thet2
   indices = [0, 1, 2, 3, 4, 5]
   des_state_rel = desired_state[indices] #relevant values of the real state 
   real_state_rel = real_state[indices] #relevant values of the desired state
@@ -236,25 +213,17 @@ def adaptive(desired_state, real_state):
   phi_x = make_phi_x(real_state_rel)
   assert phi_x.shape == (3, 12)
 
-  phi_2x = make_phi2_x(real_state_rel)
-  assert phi_2x.shape == (36, 1)
-
   kx_change = gamma*(err@real_state_rel.T)
   thet_change = - gamma*(phi_x.T@err[:3])
-  thet2_change = -gamma*(err[:2]@phi_2x.T)
   assert thet_change.shape == (12,1)
-  assert thet2_change.shape == (2, 36)
   
   kx = kx_change*step +  kx
   thet = thet_change*step + thet
-  thet2 = thet2_change*step + thet2 
 
   phithet = np.vstack((phi_x@thet, np.array([[0], [0], [0]])))
-  phithet2 = np.vstack((thet2@phi_2x, np.array([[0], [0], [0], [0]])))
-  u = kx@real_state_rel - phithet2 -phithet
+  u = kx@real_state_rel - phithet
   assert u.shape == (6,1)
 
-#   print(f'{thet2@phi_2x = }')
   stored_thet.append(thet)
   return u
 
@@ -280,7 +249,7 @@ def evaluate_performance(real_states, desired_states):
    return total_sum/(num_iterations-2)
 
 ###########################################################################
-# ---------------------------------PLOTTING-------------------------------#
+# ------------------------------PLOTTING + DATA---------------------------#
 ###########################################################################
 def plot2D(toplot, num_val):
    x_vals = []
@@ -383,29 +352,72 @@ def plot_distance(real_states, desired_states, save_as_pdf = False, name = "plot
    if save_as_pdf: 
       fig.savefig(name)
 
+def create_folder(base_path = "./data", prefix = "run_"):
+   """
+   creates a new folder based on the timestamp of the run
+   """
+   timestamp = datetime.datetime.now().strftime("%m%d_%H%M")
+   folder_name = f"{prefix}{timestamp}"
+   folder_path = os.path.join(base_path, folder_name)
+   os.makedirs(folder_path, exist_ok = True)
+   return folder_path
+
+def save_pickle(folder_path, filename, data):
+   pickle_path = os.path.join(folder_path, filename)
+   with open(pickle_path, 'wb') as f:
+      pickle.dump(data, f)
+   return pickle_path
+   
 if __name__ == "__main__":
+    plot = True # EDIT THIS TO CONTROL WHETHER IT PLOTS
+    try:
+        AC = False
+        # Testing
+        # desired_states = constant()
+        desired_states = make_circles()
 
-   AC = True
-   # Testing
-   # desired_states = constant()
-   desired_states = make_circles()
+        if AC: 
+           real_states = cf_sim(desired_states)
+        else:
+           allcfs.takeoff(targetHeight=height, duration=1.0+height)
+           timeHelper.sleep(1.5+height)
+           cf.goTo([r,0,height], 0, 2)
+           timeHelper.sleep(2)
+           real_states = cf_sim_no_AC(desired_states)
 
-   if AC: 
-      real_states = cf_sim(desired_states)
-   else:
-      real_states = cf_sim_no_AC(desired_states)
+        #  print(f'{PID_states = }')
+        #  print(f'{desired_states = }')
+        for i in range(num_cf):
+            allcfs.crazyflies[i].notifySetpointsStop() #changes to high level commands
+        allcfs.land(targetHeight=0.04, duration=2.5)
+        timeHelper.sleep(3+1)
+   
+    except KeyboardInterrupt: #forces land if cancelled
+        # try to use timeHelper.isShutdown()
+        print("oops")
+        for i in range(num_cf):
+            allcfs.crazyflies[i].notifySetpointsStop() #changes to high level commands
 
-   #  print(f'{PID_states = }')
-   #  print(f'{desired_states = }')
+        allcfs.land(targetHeight=0.04, duration=2.5)
+        timeHelper.sleep(3+1)
 
-   #plotting + evaluation
-   store = False
-   plot2D(stored_thet, 5)
-   # plot2D(stored_dist, 3)
-   plot2D_both(real_states, desired_states)
-   plot3D_both(real_states, desired_states, store, "pl_AC_3D_disturb_traj.pdf")
-   plot_distance(real_states, desired_states, store,  "pl_AC_dist_disturb_traj.pdf")
-   plot_difference(real_states, desired_states)
-   print(f'{evaluate_performance(real_states, desired_states) = }')
-   plt.show()
+    #plotting + evaluation
+    plot2D(stored_thet, 5)
+    # plot2D(stored_dist, 3)
+    plot2D_both(real_states, desired_states)
+    print(f'{evaluate_performance(real_states, desired_states) = }')
+
+    #creates a new folder and saves all data
+    folder_path = create_folder()
+    pl3D_path = os.path.join(folder_path, "3D.pdf")
+    pldistance = os.path.join(folder_path, "distance.pdf")
+    pldifference = os.path.join(folder_path, "difference.pdf")
+    pl2D = os.path.join(folder_path, "2D.pdf")
+    plot3D_both(real_states, desired_states, plot, pl3D_path)
+    plot_distance(real_states, desired_states, plot,  pldistance)
+    plot_difference(real_states, desired_states, plot, pldifference)
+    plot2D_both(real_states, desired_states, plot, pl2D)
+    all_data = [real_states, desired_states, stored_thet]
+    save_pickle(folder_path, "pickle.pkl", all_data)
+    plt.show()
 

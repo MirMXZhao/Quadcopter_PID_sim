@@ -18,11 +18,59 @@ import matplotlib.pyplot as plt
 #############################################################################
 # ---------------------------------CONSTANTS--------------------------------#
 #############################################################################
+
+# makes position constants
+def make_arm_position():
+   """
+   makes position column vectors based on the length of the propeller arm
+   the front right motor is labelled with 1 and the labelling is done CCW
+   """
+   pos_mul = p/math.sqrt(2)
+   m1 = pos_mul* np.array([1,1,0]).reshape(-1, 1)
+   m2 = pos_mul* np.array([-1,1,0]).reshape(-1, 1)
+   m3 = pos_mul* np.array([-1,-1,0]).reshape(-1, 1)
+   m4 = pos_mul* np.array([1,-1,0]).reshape(-1, 1)
+   return [m1, m2, m3, m4]
+
+def make_F():
+   """
+   makes F matrix (multiplied to motor speed matrix) to calculate desired states
+   """
+   forces = np.hstack((cf*e3, cf*e3, cf*e3, cf*e3))
+   combine_list = []
+   for count, ele in enumerate(positions):
+       combine_list.append(cd*e3*(-1)**count + (cf*np.cross(ele.ravel(), e3.ravel()).reshape(-1,1)))
+   torques = np.hstack(tuple(combine_list))
+   F = np.vstack((forces, torques))
+   return F
+
 #NUMBER OF ITERATIONS 
-num_iterations = 3000
+num_iterations = 1500
 
 #DISCRETIZATION
 step = 0.003
+
+#constants
+m = 29.9 #mass
+g = 9.807 #gravity
+
+#desired control constants
+cf = 3.1582
+cd = 0.0079379
+
+#inertia
+Ixx = 0.001395
+Iyy = 0.001395
+Izz = 0.002173
+J = np.array([[Ixx, 0,0], [0, Iyy, 0], [0, 0, Izz]])
+
+#arm positions
+p = 0.03973
+positions = make_arm_position()
+
+#constants needed for calculation
+e3 = np.array([0,0,1]).reshape(-1, 1)
+F = make_F()
 
 #desired starting state
 des_initial = np.zeros((12, 1))
@@ -37,23 +85,22 @@ real_initial[2] = 0
 desired_motor_speeds = [0]
 
 #Adaptive control parameters
-gamma = 0.2
+gamma = 0.4
 # A = np.zeros((4,4))
 # A[0,2] = 1
 # A[1,3] = 1
 #initial conditions for kx, kr, thet 
 kx = np.identity(6)*0.01
 thet= np.ones((12,1))*0.0
-thet2 = np.ones((2, 36))*0.0
 random.seed(1) ## CHANGE THIS WHEN WANT TO TEST A DIFFERENT SET OF RANDOM NUMBERS
 dist_rand = [random.uniform(0.1, 0.5) for _ in range (15)]
-disturbance_const = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
+disturbance_const = np.array([0.5, 0.4, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0]).reshape((-1,1))
 #CHANGE TO CONSTANT DISTURBANCE TO SEE IT WORKING BEST
 
 #Trajectory parameter
 alpha = 0.8
 
-stored_thet = []
+stored_thet = [] 
 stored_dist = []
 stored_gamma = []
 
@@ -62,7 +109,7 @@ crazyflies_yaml = """
 crazyflies:
 - id: 1
   channel: 110
-  initialPosition: [0.7 , 0, 0.3]
+  initialPosition: [0 , 0 , 0.0]
 """
 swarm = Crazyswarm(crazyflies_yaml=crazyflies_yaml)
 timeHelper = swarm.timeHelper
@@ -71,9 +118,148 @@ cf = allcfs.crazyflies[0] #There should only be one crazyflie for this program
 sleepRate = 15
 num_cf = len(allcfs.crazyflies)
 
-r = 0.7
-speed = 0.003
-height = 0.3
+###############################################################################
+# -------------------------------------RK4------------------------------------#
+###############################################################################
+
+def simulate_runge_kutta(fn, x0, t0, step_size, num_iters, des, store = False):
+  """
+  - RK4
+  - also stores the desired linear and rotational accelerations 
+  """
+  global des_lin_accel
+  global des_rot_accel
+
+  simulated_x = [None]*num_iters
+  simulated_x[0] = x0
+  cur_t =t0
+  for i in range(1, num_iters):
+      k1 = fn(des, simulated_x[i-1], cur_t)
+      k2 = fn(des, simulated_x[i-1] + step_size*k1/2, cur_t + step_size/2)
+      k3 = fn(des, simulated_x[i-1] + step_size*k2/2, cur_t + step_size/2)
+      k4 = fn(des, simulated_x[i-1] + step_size*k3, cur_t + step_size)
+      new_slope = (k1 + 2*k2 + 2*k3 + k4)/6
+
+      if store:
+         des_lin_accel.append(new_slope[3:6])
+         des_rot_accel.append(new_slope[-3:])
+
+      simulated_x[i] = simulated_x[i-1] + step_size*new_slope
+      cur_t = cur_t + step_size
+  return simulated_x
+
+###############################################################################
+# ---------------------------------MOTOR SPEEDS-------------------------------#
+###############################################################################
+#Creates motor speeds
+
+#Motor controls for testing
+#quadrant 1 is motor 1, quadrant 2 is motor 4, quadrant 3 is motor 3, quadrant 4 is motor 2
+throttle_up = np.array([[1],[1],[1],[1]])
+roll_left = np.array([[1], [1], [1.02], [1.02]])
+roll_right = np.array([[1.02], [1.02], [1], [1]])
+pitch_forward = np.array([[1], [1.02], [1.02], [1]])
+pitch_backward = np.array([[1.02], [1], [1], [1.02]])
+yaw_CW = np.array([[1], [1.1], [1], [1.1]])
+yaw_CCW = np.array([[1.1], [1], [1.1], [1]])
+
+def make_motor_speeds_non_int():
+   """
+   creates motor speed points
+   the first index of the speed indicates the time at which the speed should occur
+   the second index is a 4 by 1 array of the four motor_speeds
+   """
+   time_and_speed = []
+   time_and_speed.append((0, throttle_up*0))
+   time_and_speed.append((0.1, throttle_up*6))
+   time_and_speed.append((1, throttle_up*7))
+   time_and_speed.append((1.05, pitch_forward*1.4))
+   time_and_speed.append((1.1, throttle_up *3))
+   time_and_speed.append((2.2, throttle_up*3))
+   time_and_speed.append((2.4, pitch_backward*1.3))
+   time_and_speed.append((3, throttle_up*3))
+   time_and_speed.append((20, throttle_up*3))
+   return time_and_speed
+
+index = 0
+
+def cts_motor_speed_fn(desired_motor_speeds, t):
+   """
+   makes the motor speeds continuous
+   at a time_step in between two motor speed setpoints
+   the motor speeds is calculated based on a weighted average of the 
+   motor speeds between the two setpoints
+   """
+   global index
+   if t >= desired_motor_speeds[index+1][0]:
+      index +=1 
+   prev_speed = desired_motor_speeds[index]
+   next_speed = desired_motor_speeds[index+1]
+   fn_output = prev_speed[1] + (t - prev_speed[0])/(next_speed[0] - prev_speed[0])*(next_speed[1] - prev_speed[1])
+   return fn_output
+
+##############################################################################
+# ---------------------------------MAKE STATES-------------------------------#
+##############################################################################
+# makes num_iterations state vectors using the motor speeds from the previous section
+# each state vector is a 12 by 1 vector representing p, v, angles, omega in that order
+
+def make_omega(v):
+   """
+   makes the omega vector given vector v representing the four motor speeds
+   """
+   output = v*np.absolute(v)
+   return output
+
+def calculate_R(phi, theta, psi):
+  """
+  - creates rotation matrices
+  - three angles represent roll, pitch, yaw respectively
+  """
+  yaw = np.array([[math.cos(psi), -math.sin(psi), 0], 
+                  [math.sin(psi), math.cos(psi), 0], 
+                  [0, 0, 1]])
+  pitch = np.array([[math.cos(theta), 0, math.sin(theta)], 
+                    [0, 1, 0], 
+                    [-math.sin(theta),0,math.cos(theta)]])
+  roll = np.array([[1, 0, 0],
+                   [0, math.cos(phi), -math.sin(phi)],
+                   [0, math.sin(phi), math.cos(phi)]])
+  R = yaw @ pitch @ roll
+  return R
+
+def state_func(des, x, t):
+  """
+  math to calculate derivative of state
+  """
+  p_dot = x[3:6]
+  # makes the new acceleration and angular acceleration vectors
+  cur_motors_abs = make_omega(cts_motor_speed_fn(des, t)) ##### CHANGE
+  to_extract = np.vstack((-m*g*e3, -(np.cross(x[-3:].reshape(1,-1), (J@x[-3:]).reshape(1, -1))).reshape(-1, 1)))
+  R = calculate_R(x[6], x[7], x[8])
+
+  sub_step = np.block([[R, np.zeros((3,3))],[np.zeros((3,3)), np.eye(3)]])
+  to_extract = to_extract + sub_step@F@cur_motors_abs
+  v_dot = to_extract[:3]/m
+  omega_dot = np.linalg.inv(J)@to_extract[-3:]
+  angle_dot = make_M_inv(x[6], x[7], x[8])@x[-3:]
+  output = np.vstack((p_dot, v_dot, angle_dot, omega_dot))
+  return output
+
+def make_M_inv(phi, theta, psi):
+   """
+   - makes the inverse of the M matrix, for calculating angle_dot
+   - angle dot needs to be adjusted with this to convert from 
+   body frame to global frame 
+   """
+   M = np.array([[1, 0, -math.sin(theta)],
+                 [0, math.cos(phi), math.cos(theta)*math.sin(phi)],
+                 [0, -math.sin(phi), math.cos(theta)*math.cos(phi)]])
+   return np.linalg.inv(M)
+
+des_lin_accel = [np.array([[0], [0], [0]])]
+des_rot_accel = [np.array([[0], [0], [0]])]
+
 ###############################################################################
 # -----------------------------Crazyflie simulator----------------------------#
 ###############################################################################
@@ -112,7 +298,7 @@ def cf_sim(desired_state):
       update_desired = adaptive(new_desired, cur_state)
       cur_desired = np.vstack((new_desired[[0,1,2,3,4,5]] + update_desired[[0,1,2,3,4,5]], new_desired[6:]))
 
-      motion(np.add(cur_desired, sim_wind(cur_desired)), [0,0,0])
+      motion(np.add(cur_desired, disturbance_const), [0,0,0])
 
    return recorded_states
 
@@ -123,7 +309,7 @@ def cf_sim_no_AC(desired_state):
    recorded_states = []
    for i in range(num_iterations):
       cur_desired = desired_state[i]
-      motion(np.add(cur_desired, sim_wind(cur_desired)), [0,0,0])
+      motion(np.add(cur_desired, disturbance_const), [0,0,0])
       pos = cf.position()
       vel = (cur_desired[3:6].reshape(3,)).tolist()
       cur_state = np.array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]]).reshape(-1,1)
@@ -158,19 +344,6 @@ def disturbance(iter):
    stored_dist.append(output/2)
    return output/3
 
-std_dev = r*0.7
-mean_x = 0.3
-mean_y= -0.8
-w_strength = 0.3
-
-def sim_wind(x):
-   x_val = x[0]
-   y_val = x[1]
-   normal_val = 1/(std_dev*math.sqrt(2*math.pi))*(math.e**(-((x_val - mean_x)**2 + (y_val - mean_y)**2)/(2*std_dev**2)))
-   # print(normal_val)
-   # print(x)
-   return np.array([0,normal_val[0]*w_strength,0, 0,0,0, 0,0,0, 0,0,0]).reshape(-1,1)
-
 ##############################################################################
 # ---------------------------------TEST STATES-------------------------------#
 ##############################################################################
@@ -178,11 +351,14 @@ def sim_wind(x):
 
 def make_circles():
    state = []
+   r = 2
+   speed = 0.005
+   height = 2
    for i in range(num_iterations+3):
       theta = i*speed
       velx = -r * math.sin(theta) * speed/step 
       vely = r* math.cos(theta) * speed/step 
-      state.append(np.array([r*math.cos(theta), r*math.sin(theta), height, velx, vely,0,0,0,0,0,0,0]).reshape(12, 1))
+      state.append(np.array([r*math.cos(theta) - r , r*math.sin(theta), height, velx, vely,0,0,0,0,0,0,0]).reshape(12, 1))
    return state
 
 def constant():
@@ -200,23 +376,6 @@ def make_phi_x(real_state):
       arr.append(np.identity(3)*real_state[i])
    return np.hstack((arr[0], arr[1], arr[2], np.identity(3)))
 
-def make_phi2_x(real_state): 
-   x = real_state[0]
-   y = real_state[1] 
-   x_val = [-0.3, -0.15, 0, 0.15, 0.3, 0.45]
-   y_val = [-0.3, -0.15, 0, 0.15, 0.3, 0.45]
-   x_num = len(x_val) 
-   y_num = len(y_val)
-   exponents = np.zeros((x_num*y_num, 1))
-   counter = 0
-   for i in range(x_num):
-      for j in range(y_num):
-         exponents[counter] = - ((x-x_val[i])**2 + (y - y_val[j])**2)
-         # exponents[counter] = ((x-x_val[i])**2 + (y - y_val[j])**2)**0.5 #for some reason this works better even though it doesn't make sense
-         counter +=1 
-   output = np.exp(exponents)
-   return output
-
 def adaptive(desired_state, real_state):
   """
   The desired circular motion takes the form: x_dot = A* x + thet x where thet is a 
@@ -226,7 +385,6 @@ def adaptive(desired_state, real_state):
   """
   global kx
   global thet
-  global thet2
   indices = [0, 1, 2, 3, 4, 5]
   des_state_rel = desired_state[indices] #relevant values of the real state 
   real_state_rel = real_state[indices] #relevant values of the desired state
@@ -236,25 +394,17 @@ def adaptive(desired_state, real_state):
   phi_x = make_phi_x(real_state_rel)
   assert phi_x.shape == (3, 12)
 
-  phi_2x = make_phi2_x(real_state_rel)
-  assert phi_2x.shape == (36, 1)
-
   kx_change = gamma*(err@real_state_rel.T)
   thet_change = - gamma*(phi_x.T@err[:3])
-  thet2_change = -gamma*(err[:2]@phi_2x.T)
   assert thet_change.shape == (12,1)
-  assert thet2_change.shape == (2, 36)
   
   kx = kx_change*step +  kx
   thet = thet_change*step + thet
-  thet2 = thet2_change*step + thet2 
 
   phithet = np.vstack((phi_x@thet, np.array([[0], [0], [0]])))
-  phithet2 = np.vstack((thet2@phi_2x, np.array([[0], [0], [0], [0]])))
-  u = kx@real_state_rel - phithet2 -phithet
+  u = kx@real_state_rel - phithet
   assert u.shape == (6,1)
 
-#   print(f'{thet2@phi_2x = }')
   stored_thet.append(thet)
   return u
 
@@ -384,27 +534,25 @@ def plot_distance(real_states, desired_states, save_as_pdf = False, name = "plot
       fig.savefig(name)
 
 if __name__ == "__main__":
-
-   AC = True
+   desired_motor_speeds = make_motor_speeds_non_int()
+   
+   #makes desired state based on motor speeds 
+   desired_states = simulate_runge_kutta(state_func, des_initial, 0, step, num_iterations, desired_motor_speeds, True) 
    # Testing
    # desired_states = constant()
-   desired_states = make_circles()
 
-   if AC: 
-      real_states = cf_sim(desired_states)
-   else:
-      real_states = cf_sim_no_AC(desired_states)
+   real_states = cf_sim(desired_states)
+   # real_states = cf_sim_no_AC(desired_states)
 
    #  print(f'{PID_states = }')
    #  print(f'{desired_states = }')
 
    #plotting + evaluation
-   store = False
    plot2D(stored_thet, 5)
    # plot2D(stored_dist, 3)
    plot2D_both(real_states, desired_states)
-   plot3D_both(real_states, desired_states, store, "pl_AC_3D_disturb_traj.pdf")
-   plot_distance(real_states, desired_states, store,  "pl_AC_dist_disturb_traj.pdf")
+   plot3D_both(real_states, desired_states, False, "pl_noAC_3D_disturb_vert1.pdf")
+   plot_distance(real_states, desired_states, False,  "pl_noAC_dist_disturb_vert1.pdf")
    plot_difference(real_states, desired_states)
    print(f'{evaluate_performance(real_states, desired_states) = }')
    plt.show()
